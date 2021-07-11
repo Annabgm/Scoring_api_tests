@@ -12,7 +12,7 @@ from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from scoring import get_interests, get_score
-from store import MonkStore, MockStoreConnection
+from store import MockStore, MockStoreConnection
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -232,7 +232,7 @@ def get_score_response(request, request_local, store):
         response = {'score': 42}
         context = {}
     else:
-        scoring_request_dict = {k[1:]: v for k, v in request_local.__dict__.items()}
+        scoring_request_dict = {k[1:]: str(v) for k, v in request_local.__dict__.items() if v is not None}
         response = {'score': get_score(store, **scoring_request_dict)}
         context = {'has': [k for k, v in scoring_request_dict.items() if v is not None]}
     return response, context
@@ -301,8 +301,12 @@ def method_handler(request, ctx, store):
             code, response = FORBIDDEN, 'Authorization is failed'
             logging.info("Authorization is failed")
         else:
-            code, response, context = method_apply(request_obj, store)
-            ctx.update(context)
+            try:
+                code, response, context = method_apply(request_obj, store)
+                ctx.update(context)
+            except ConnectionError as e:
+                logging.info("Validation had not passed: %s" % getattr(e, 'message', str(e)))
+                code, response = INTERNAL_ERROR, ERRORS[INTERNAL_ERROR]
     return response, code
 
 
@@ -310,7 +314,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = MonkStore(MockStoreConnection)
+    store = MockStore(MockStoreConnection)
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)

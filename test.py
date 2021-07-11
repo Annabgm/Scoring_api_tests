@@ -3,6 +3,7 @@ import hashlib
 import functools
 import datetime
 
+from store import MockStore, MockStoreConnection
 import api
 
 
@@ -22,14 +23,15 @@ def cases(cases):
     return decorator
 
 
-class TestSuite(unittest.TestCase):
+class TestModuleSuite(unittest.TestCase):
     def setUp(self):
         self.context = {}
         self.headers = {}
-        self.store = None
+        self.store_connection = MockStoreConnection()
+        self.store = MockStore(self.store_connection)
 
     def get_response(self, request):
-        return api.method_handler({"body": request, "headers": self.headers}, self.context)
+        return api.method_handler({"body": request, "headers": self.headers}, self.context, self.store)
 
     def set_valid_auth(self, request):
         if request.get("login") == api.ADMIN_LOGIN:
