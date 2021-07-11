@@ -5,12 +5,14 @@ import abc
 import json
 import datetime
 import logging
+import re
 import hashlib
 import uuid
 from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
 from scoring import get_interests, get_score
-import re
+from store import MonkStore, MockStoreConnection
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -221,7 +223,7 @@ def check_auth(request):
     return False
 
 
-def get_score_response(request, request_local):
+def get_score_response(request, request_local, store):
     """
     function calculate scoring value depends on the user's authority, return score and logging context
     :return dict[str, int], dict[str, List[str]]
@@ -231,22 +233,22 @@ def get_score_response(request, request_local):
         context = {}
     else:
         scoring_request_dict = {k[1:]: v for k, v in request_local.__dict__.items()}
-        response = {'score': get_score(**scoring_request_dict)}
+        response = {'score': get_score(store, **scoring_request_dict)}
         context = {'has': [k for k, v in scoring_request_dict.items() if v is not None]}
     return response, context
 
 
-def get_interest_response(request, request_local):
+def get_interest_response(request, request_local, store):
     """
     function calculate interest, return interest and logging context
     :return dict[str, List[str]], dict[str, List[int]]
     """
-    response = {str(i): get_interests(str(i)) for i in request_local.client_ids}
+    response = {str(i): get_interests(store, str(i)) for i in request_local.client_ids}
     context = {'nclients': len(request_local.client_ids)}
     return response, context
 
 
-def method_apply(request):
+def method_apply(request, store):
     """
     function tries to evaluate scoring or interest with check of variables validity first
     :return code, result from get_interest_response or get_score_response functions or default response
@@ -276,12 +278,12 @@ def method_apply(request):
         code, response = INVALID_REQUEST, ERRORS[INVALID_REQUEST]
     else:
         code = OK
-        response, context = available_methods[method][1](request, local_request)
+        response, context = available_methods[method][1](request, local_request, store)
     logging.info(response)
     return code, response, context
 
 
-def method_handler(request, ctx):
+def method_handler(request, ctx, store):
     """
     function check the validity of request's attributes, if correct return result from function method_apply
     :param request: POST request
@@ -299,7 +301,7 @@ def method_handler(request, ctx):
             code, response = FORBIDDEN, 'Authorization is failed'
             logging.info("Authorization is failed")
         else:
-            code, response, context = method_apply(request_obj)
+            code, response, context = method_apply(request_obj, store)
             ctx.update(context)
     return response, code
 
@@ -308,7 +310,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = MonkStore(MockStoreConnection)
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
@@ -329,7 +331,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
             logging.info("%s: %s %s" % (self.path, data_string, context["request_id"]))
             if path in self.router:
                 try:
-                    response, code = self.router[path]({"body": request, "headers": self.headers}, context)
+                    response, code = self.router[path]({"body": request, "headers": self.headers}, context, self.store)
                 except Exception as e:
                     logging.exception("Unexpected error: %s" % e)
                     code = INTERNAL_ERROR

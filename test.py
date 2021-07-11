@@ -101,7 +101,9 @@ class TestSuite(unittest.TestCase):
         {"account": "horns&hoofs", "login": "h&f", "method": "online_request", "arguments": {}},
         {"account": "horns&hoofs", "login": "h&f", "method": "", "arguments": {}},
         {"account": "horns&hoofs", "login": "h&f", "method": 2, "arguments": {}},
-        {"account": "horns&hoofs", "login": "h&f", "method": 2., "arguments": {}}
+        {"account": "horns&hoofs", "login": "h&f", "method": 2., "arguments": {}},
+        {"account": "horns&hoofs", "login": "h&f", "method": [2], "arguments": {}},
+        {"account": "horns&hoofs", "login": "h&f", "method": (2,), "arguments": {}}
     ])
     def test_invalid_method_request(self, request):
         self.set_valid_auth(request)
