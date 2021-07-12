@@ -4,11 +4,11 @@ from datetime import datetime
 import api
 
 
-def cases(cases):
+def cases(case):
     def decorator(f):
         @functools.wraps(f)
         def wrapper(*args):
-            for c in cases:
+            for c in case:
                 new_args = args + (c if isinstance(c, tuple) else (c,))
                 try:
                     f(*new_args)
