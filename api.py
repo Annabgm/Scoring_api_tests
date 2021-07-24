@@ -12,7 +12,7 @@ from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from scoring import get_interests, get_score
-from store import MockStore, MockStoreConnection
+from store import RedisWrapper, MockStoreConnection
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -40,9 +40,10 @@ GENDERS = {
 }
 
 ###--------------------------------------------- Create Descriptors ------------------------------------------
+class ValidationError(Exception):
+    pass
 
-
-class Fields:
+class Field:
     __metaclass__ = abc.ABCMeta
 
     def __init__(self, required, nullable=None):
@@ -58,7 +59,7 @@ class Fields:
 
     def __set__(self, instance, value):
         if self.required and value is None:
-            raise ValueError('{} is a required field'.format(self.public_name))
+            raise ValidationError('{} is a required field'.format(self.public_name))
         self.validate(value)
         setattr(instance, self.private_name, value)
 
@@ -67,97 +68,110 @@ class Fields:
         pass
 
 
-class CharField(Fields):
+class CharField(Field):
     def validate(self, value):
         if not isinstance(value, str) and value is not None:
-            raise TypeError('{} must be a string'.format(self.public_name))
+            raise ValidationError('{} must be a string'.format(self.public_name))
 
 
-class ArgumentsField(Fields):
+class ArgumentsField(Field):
     def validate(self, value):
         if not isinstance(value, dict):
-            raise TypeError('{} must be a dictionary'.format(self.public_name))
+            raise ValidationError('{} must be a dictionary'.format(self.public_name))
 
 
-class EmailField(Fields):
+class EmailField(Field):
     def validate(self, value):
         email_ = r'\w+@[a-z]+\.[a-z]+'
         email_templ = re.compile(email_)
         if value is not None:
             if not isinstance(value, str):
-                raise TypeError('{} must be a string'.format(self.public_name))
+                raise ValidationError('{} must be a string'.format(self.public_name))
             elif not email_templ.fullmatch(value):
-                raise ValueError('{} is not an email address'.format(self.public_name))
+                raise ValidationError('{} is not an email address'.format(self.public_name))
 
 
-class PhoneField(Fields):
+class PhoneField(Field):
     def validate(self, value):
         phone_ = r'7\d{10}'
         phone_templ = re.compile(phone_)
         if value is not None:
             if not isinstance(value, (str, int)):
-                raise TypeError('{} must be a string or an integer'.format(self.public_name))
+                raise ValidationError('{} must be a string or an integer'.format(self.public_name))
             elif ((isinstance(value, str) and not phone_templ.fullmatch(value)) or
                   (isinstance(value, int) and value//7e+10 < 1.)):
-                raise ValueError('{} is not a phone number, should start with 7'.format(self.public_name))
+                raise ValidationError('{} is not a phone number, should start with 7'.format(self.public_name))
 
 
-class DateField(Fields):
+class DateField(Field):
     def validate(self, value):
         if value is not None:
             try:
                 datetime.datetime.strptime(value, '%d.%m.%Y')
-            except ValueError:
-                raise ValueError('{} must be a correct data, in format DD.MM.YYYY'.format(self.public_name))
+            except (ValueError, TypeError):
+                raise ValidationError('{} must be a correct data, in format DD.MM.YYYY'.format(self.public_name))
 
 
-class BirthDayField(Fields):
+class BirthDayField(DateField):
     def validate(self, value):
-        now = datetime.datetime.today()
+        super(BirthDayField, self).validate(value)
         if value is not None:
-            try:
-                data_tmp = datetime.datetime.strptime(value, '%d.%m.%Y')
-            except ValueError:
-                raise TypeError('{} must be a correct data, in format DD.MM.YYYY'.format(self.public_name))
-            else:
-                if (now - data_tmp).days / 365 > 70:
-                    raise ValueError('{} is older than 70 yeahs'.format(self.public_name))
+            now = datetime.datetime.today()
+            data_tmp = datetime.datetime.strptime(value, '%d.%m.%Y')
+            if now.year - data_tmp.year > 70:
+                raise ValidationError('{} is older than 70 yeahs'.format(self.public_name))
 
 
-class GenderField(Fields):
+class GenderField(Field):
     def validate(self, value):
         if value is not None:
             if not isinstance(value, int):
-                raise TypeError('{} must be an integer'.format(self.public_name))
+                raise ValidationError('{} must be an integer'.format(self.public_name))
             elif value not in [0, 1, 2]:
-                raise ValueError('{} must be one of [0, 1, 2]'.format(self.public_name))
+                raise ValidationError('{} must be one of [0, 1, 2]'.format(self.public_name))
 
 
-class ClientIDsField(Fields):
+class ClientIDsField(Field):
     def validate(self, value):
         if not isinstance(value, list):
-            raise TypeError('{} must be a list'.format(self.public_name))
+            raise ValidationError('{} must be a list'.format(self.public_name))
         if len(value) == 0:
-            raise ValueError('{} must be non empty list'.format(self.public_name))
+            raise ValidationError('{} must be non empty list'.format(self.public_name))
         elif sum([isinstance(i, (int, float)) for i in value]) != len(value):
-            raise ValueError('{} must be a list of numbers'.format(self.public_name))
+            raise ValidationError('{} must be a list of numbers'.format(self.public_name))
 
 
 ###------------------------------------------ Create API -------------------------------------------------
+class MetaRequest(type):
+    def __new__(cls, name, bases, atts):
+        clas = super().__new__(cls, name, bases, atts)
+        all_atts = []
+        for key, val in atts.items():
+            if not key.startswith('__') and not isinstance(val, property):
+                all_atts.append(key)
+        setattr(clas, '__sign__', tuple(all_atts))
+        return clas
 
-class ClientsInterestsRequest(object):
+
+class Request(metaclass=MetaRequest):
+
+    def __init__(cls, **kwards):
+        all_arg = {k: None for k in cls.__sign__}
+        all_arg.update(kwards)
+        for k, v in all_arg.items():
+            setattr(cls, k, v)
+
+
+class ClientsInterestsRequest(Request):
     client_ids = ClientIDsField(required=True)
     date = DateField(required=False, nullable=True)
 
-    def __init__(
-            self,
-            client_ids=None,
-            date=None):
-        self.client_ids = client_ids
-        self.date = date
+    @property
+    def is_valid(self):
+        return True
 
 
-class OnlineScoreRequest(object):
+class OnlineScoreRequest(Request):
     first_name = CharField(required=False, nullable=True)
     last_name = CharField(required=False, nullable=True)
     email = EmailField(required=False, nullable=True)
@@ -165,41 +179,24 @@ class OnlineScoreRequest(object):
     birthday = BirthDayField(required=False, nullable=True)
     gender = GenderField(required=False, nullable=True)
 
-    def __init__(
-            self,
-            first_name=None,
-            last_name=None,
-            email=None,
-            phone=None,
-            birthday=None,
-            gender=None):
-        self.first_name = first_name
-        self.last_name = last_name
-        self.email = email
-        self.phone = phone
-        self.birthday = birthday
-        self.gender = gender
+    @property
+    def is_valid(self):
+        if self.phone is not None and self.email is not None:
+            return True
+        elif self.first_name is not None and self.last_name is not None:
+            return True
+        elif self.gender is not None and self.birthday is not None:
+            return True
+        else:
+            return False
 
 
-class MethodRequest(object):
+class MethodRequest(Request):
     account = CharField(required=False, nullable=True)
     login = CharField(required=True, nullable=True)
     token = CharField(required=True, nullable=True)
     arguments = ArgumentsField(required=True, nullable=True)
     method = CharField(required=True, nullable=False)
-
-    def __init__(
-            self,
-            login=None,
-            token=None,
-            arguments=None,
-            method=None,
-            account=None):
-        self.login = login
-        self.token = token
-        self.arguments = arguments
-        self.method = method
-        self.account = account
 
     @property
     def is_admin(self):
@@ -261,21 +258,15 @@ def method_apply(request, store):
     }
     try:
         local_request = available_methods[method][0](**arguments)
-        notnullable = [k for k, v in local_request.__dict__.items() if v is not None]
-        if (('_client_ids' in notnullable) or
-            ('_phone' in notnullable and '_email' in notnullable) or
-            ('_first_name' in notnullable and '_last_name' in notnullable) or
-            ('_gender' in notnullable and '_birthday' in notnullable)):
-            pass
-        else:
-            raise ValueError('Arguments dictionary does not have required keys')
-    except (TypeError, ValueError) as e:
+        if not local_request.is_valid:
+            raise ValidationError('Arguments dictionary does not have required keys')
+    except ValidationError as e:
         logging.info("Validation error: %s" % e)
         code = INVALID_REQUEST
         response = getattr(e, 'message', str(e))
     except KeyError as e:
         logging.info("Attribute method is not valid: %s" % e)
-        code, response = INVALID_REQUEST, ERRORS[INVALID_REQUEST]
+        code, response = INVALID_REQUEST, "Invalid Request"
     else:
         code = OK
         response, context = available_methods[method][1](request, local_request, store)
@@ -293,9 +284,9 @@ def method_handler(request, ctx, store):
     request_body, request_header = request['body'], request['headers']
     try:
         request_obj = MethodRequest(**request_body)
-    except (TypeError, ValueError) as e:
+    except ValidationError as e:
         logging.info("Validation had not passed: %s" % getattr(e, 'message', str(e)))
-        code, response = INVALID_REQUEST, ERRORS[INVALID_REQUEST]
+        code, response = INVALID_REQUEST, "Invalid Request"
     else:
         if not check_auth(request_obj):
             code, response = FORBIDDEN, 'Authorization is failed'
@@ -314,7 +305,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = MockStore(MockStoreConnection)
+    store = RedisWrapper({})
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
