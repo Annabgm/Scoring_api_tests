@@ -2,6 +2,93 @@ from datetime import datetime
 import random
 import time
 import json
+import redis
+
+
+class RedisStore(object):
+    def __init__(self, host, port, db=0):
+        self.host = host
+        self.port = port
+        self.timeout = 5
+        self.db = db
+        self.store = redis.StrictRedis(
+            host=self.host,
+            port=self.port,
+            db=self.db,
+            socket_timeout=self.timeout
+        )
+
+    def try_command(self, max_retries, f, *args, **kwargs):
+        count = 0
+        while True:
+            try:
+                return f(*args, **kwargs)
+            except redis.ConnectionError:
+                count += 1
+
+                # re-raise the ConnectionError if we've exceeded max_retries
+                if count > max_retries:
+                    raise
+
+                backoff = count * 5
+
+                print('Retrying in {} seconds'.format(backoff))
+                time.sleep(backoff)
+
+                self.store = redis.StrictRedis(
+                    host=self.host,
+                    port=self.port,
+                    db=self.db,
+                    socket_timeout=self.timeout
+                )
+
+    def check_connection(self):
+        try:
+            self.store.ping()
+            return True
+        except redis.exceptions.ConnectionError:
+            return False
+
+    def cache_set(self, key, value, save_time):
+        if not self.check_connection():
+            try:
+                self.try_command(self.store.set, key, value, ex=save_time)
+            except:
+                pass
+        else:
+            self.store.set(key, value, ex=save_time)
+
+    def cache_get(self, key):
+        if not self.check_connection():
+            try:
+                val = self.try_command(self.store.hget, key)
+                return val.decode("utf-8")
+            except:
+                return None
+        if not self.store.exists(key):
+            return None
+        else:
+            return self.store.hget(key).decode("utf-8")
+
+    def get(self, key):
+        if not self.check_connection():
+            try:
+                val = self.try_command(self.store.hget, key)
+                return val.decode("utf-8")
+            except redis.ConnectionError:
+                raise ConnectionError('Connection no more established.')
+            except:
+                return None
+        if not self.store.exists(key):
+            return None
+        else:
+            return self.store.hget(key).decode("utf-8")
+        # key_seed = key.split(':')[-1]
+        # random.seed(key_seed)
+        # interests = ["cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus"]
+        # return json.dumps(random.sample(interests, 2))
+
+
 
 class MockStore(object):
     def __init__(self, server):

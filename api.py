@@ -307,6 +307,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     }
     store = RedisWrapper({})
 
+
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
 
