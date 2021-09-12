@@ -11,7 +11,7 @@ import uuid
 from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from scoring import get_interests, get_score
+from helpers import get_score_response, get_interest_response, check_auth
 from store import RedisWrapper, MockStoreConnection
 
 SALT = "Otus"
@@ -39,7 +39,7 @@ GENDERS = {
     FEMALE: "female",
 }
 
-###--------------------------------------------- Create Descriptors ------------------------------------------
+
 class ValidationError(Exception):
     pass
 
@@ -141,25 +141,25 @@ class ClientIDsField(Field):
             raise ValidationError('{} must be a list of numbers'.format(self.public_name))
 
 
-###------------------------------------------ Create API -------------------------------------------------
 class MetaRequest(type):
     def __new__(cls, name, bases, atts):
         clas = super().__new__(cls, name, bases, atts)
-        all_atts = []
-        for key, val in atts.items():
-            if not key.startswith('__') and not isinstance(val, property):
-                all_atts.append(key)
+        all_atts = [k for k, v in atts.items() if isinstance(v, Field)]
         setattr(clas, '__sign__', tuple(all_atts))
         return clas
 
 
 class Request(metaclass=MetaRequest):
 
-    def __init__(cls, **kwards):
-        all_arg = {k: None for k in cls.__sign__}
+    def __init__(self, **kwards):
+        all_arg = {k: None for k in self.__sign__}
         all_arg.update(kwards)
-        for k, v in all_arg.items():
-            setattr(cls, k, v)
+        setattr(self, '_arg_init', all_arg)
+
+    def validate_all(self):
+        for k, v in self._arg_init.items():
+            setattr(self, k, v)
+        del self.__dict__['_arg_init']
 
 
 class ClientsInterestsRequest(Request):
@@ -203,48 +203,6 @@ class MethodRequest(Request):
         return self.login == ADMIN_LOGIN
 
 
-###--------------------------------------------------- Methcds ---------------------------------------------------
-
-def check_auth(request):
-    """
-    function check the authority and than check that the hashed login corresponds to the token that has been sent
-    Takes request event
-    :return bool
-    """
-    if request.is_admin:
-        digest = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + ADMIN_SALT).encode('utf-8')).hexdigest()
-    else:
-        digest = hashlib.sha512((request.account + request.login + SALT).encode('utf-8')).hexdigest()
-    if digest == request.token:
-        return True
-    return False
-
-
-def get_score_response(request, request_local, store):
-    """
-    function calculate scoring value depends on the user's authority, return score and logging context
-    :return dict[str, int], dict[str, List[str]]
-    """
-    if request.is_admin:
-        response = {'score': 42}
-        context = {}
-    else:
-        scoring_request_dict = {k[1:]: str(v) for k, v in request_local.__dict__.items() if v is not None}
-        response = {'score': get_score(store, **scoring_request_dict)}
-        context = {'has': [k for k, v in scoring_request_dict.items() if v is not None]}
-    return response, context
-
-
-def get_interest_response(request, request_local, store):
-    """
-    function calculate interest, return interest and logging context
-    :return dict[str, List[str]], dict[str, List[int]]
-    """
-    response = {str(i): get_interests(store, str(i)) for i in request_local.client_ids}
-    context = {'nclients': len(request_local.client_ids)}
-    return response, context
-
-
 def method_apply(request, store):
     """
     function tries to evaluate scoring or interest with check of variables validity first
@@ -258,6 +216,7 @@ def method_apply(request, store):
     }
     try:
         local_request = available_methods[method][0](**arguments)
+        local_request.validate_all()
         if not local_request.is_valid:
             raise ValidationError('Arguments dictionary does not have required keys')
     except ValidationError as e:
@@ -284,6 +243,7 @@ def method_handler(request, ctx, store):
     request_body, request_header = request['body'], request['headers']
     try:
         request_obj = MethodRequest(**request_body)
+        request_obj.validate_all()
     except ValidationError as e:
         logging.info("Validation had not passed: %s" % getattr(e, 'message', str(e)))
         code, response = INVALID_REQUEST, "Invalid Request"

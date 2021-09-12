@@ -6,156 +6,89 @@ import redis
 
 
 class RedisStore(object):
-    def __init__(self, host, port, db=0):
+    def __init__(self, host, port, db_store=0, db_cache=1):
         self.host = host
         self.port = port
         self.timeout = 5
-        self.db = db
-        self.store = redis.StrictRedis(
-            host=self.host,
-            port=self.port,
-            db=self.db,
-            socket_timeout=self.timeout
-        )
+        self.db_store = db_store
+        self.db_cache = db_cache
+        self.retry = 5
+        self.store = None
+        self.cache = None
+        self.connect(type_st='store')
+        self.connect(type_st='cache')
 
-    def try_command(self, max_retries, f, *args, **kwargs):
+    def connect(self, type_st='store'):
+        if type_st == 'store':
+            self.store = redis.StrictRedis(
+                host=self.host,
+                port=self.port,
+                db=self.db_store,
+                socket_timeout=self.timeout
+            )
+        elif type_st == 'cache':
+            self.cache = redis.StrictRedis(
+                host=self.host,
+                port=self.port,
+                db=self.db_cache,
+                socket_timeout=self.timeout
+            )
+
+    def try_command(self, type_st='store'):
+        if type_st == 'store':
+            obj = self.store
+        elif type_st == 'cache':
+            obj = self.cache
+        else:
+            raise NotImplementedError('The type of store {} not found'.format(type))
+
         count = 0
         while True:
             try:
-                return f(*args, **kwargs)
-            except redis.ConnectionError:
+                obj.ping()
+                return True
+                # return f(*args, **kwargs)
+            except redis.exceptions.ConnectionError:
                 count += 1
 
                 # re-raise the ConnectionError if we've exceeded max_retries
-                if count > max_retries:
-                    raise
+                if count > self.retry:
+                    return False
 
                 backoff = count * 5
 
                 print('Retrying in {} seconds'.format(backoff))
                 time.sleep(backoff)
 
-                self.store = redis.StrictRedis(
-                    host=self.host,
-                    port=self.port,
-                    db=self.db,
-                    socket_timeout=self.timeout
-                )
-
-    def check_connection(self):
-        try:
-            self.store.ping()
-            return True
-        except redis.exceptions.ConnectionError:
-            return False
+                self.connect(type_st=type_st)
 
     def cache_set(self, key, value, save_time):
-        if not self.check_connection():
+        if self.try_command(type_st='cache'):
             try:
-                self.try_command(self.store.set, key, value, ex=save_time)
-            except:
-                pass
-        else:
-            self.store.set(key, value, ex=save_time)
-
-    def cache_get(self, key):
-        if not self.check_connection():
-            try:
-                val = self.try_command(self.store.hget, key)
-                return val.decode("utf-8")
+                self.cache.set(key, value, ex=save_time)
             except:
                 return None
-        if not self.store.exists(key):
-            return None
-        else:
-            return self.store.hget(key).decode("utf-8")
+
+    def cache_get(self, key):
+        if self.try_command(type_st='cache'):
+            try:
+                val = int(self.cache.get(key).decode("utf-8"))
+                return val
+            except:
+                return None
 
     def get(self, key):
-        if not self.check_connection():
+        if self.try_command(type_st='store'):
             try:
-                val = self.try_command(self.store.hget, key)
-                return val.decode("utf-8")
+                val = self.store.get(key).decode("utf-8")
+                return val
             except redis.ConnectionError:
                 raise ConnectionError('Connection no more established.')
             except:
                 return None
-        if not self.store.exists(key):
-            return None
         else:
-            return self.store.hget(key).decode("utf-8")
+            raise ConnectionError('Connection no more established.')
         # key_seed = key.split(':')[-1]
         # random.seed(key_seed)
         # interests = ["cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus"]
         # return json.dumps(random.sample(interests, 2))
-
-
-
-class MockStore(object):
-    def __init__(self, server):
-        self.store_cache = {}
-        self.server = server
-
-    def connect(self):
-        if self.server.connected:
-            return True
-        else:
-            self.server.request()
-            if self.server.connected:
-                return True
-            return False
-
-
-    def cache_set(self, key, value, save_time):
-        cache_time = datetime.now().timestamp() + save_time
-        connected = self.connect()
-        if connected:
-            self.store_cache[key] = (cache_time, value)
-        return
-
-    def cache_get(self, key):
-        request_time = datetime.now().timestamp()
-        connected = self.connect()
-        value = None
-        if connected:
-            try:
-                time_set, value = self.store_cache[key]
-            except KeyError:
-                pass
-            else:
-                if time_set < request_time:
-                    del self.store_cache[key]
-                    value = None
-        return value
-
-    def get(self, key):
-        connected = self.connect()
-        if not connected:
-            raise ConnectionError('MokeStore emulating a connection error')
-        key_seed = key.split(':')[-1]
-        random.seed(key_seed)
-        interests = ["cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus"]
-        return json.dumps(random.sample(interests, 2))
-
-
-class MockStoreConnection(object):
-    def __init__(self, connected=True, probability=0.5):
-        self.connected = connected
-        self.connect_prob = probability
-        self.timeout = 1
-        self.attemps_lim = 10
-
-    def request(self):
-
-        if not self.connected:
-            attemps = 0
-            value = False
-            while attemps < self.attemps_lim:
-                if random.random() > self.connect_prob:
-                    value = True
-                    break
-                else:
-                    print(attemps)
-                    attemps += 1
-                    print('Try to reconnect.')
-                    time.sleep(self.timeout)
-            self.connected = value
