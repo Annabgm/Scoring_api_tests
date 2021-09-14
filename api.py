@@ -12,7 +12,7 @@ from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from helpers import get_score_response, get_interest_response, check_auth
-from store import RedisWrapper, MockStoreConnection
+from store import RedisStore
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -257,7 +257,7 @@ def method_handler(request, ctx, store):
                 ctx.update(context)
             except ConnectionError as e:
                 logging.info("Validation had not passed: %s" % getattr(e, 'message', str(e)))
-                code, response = INTERNAL_ERROR, ERRORS[INTERNAL_ERROR]
+                code, response = INTERNAL_ERROR, "Internal Server Error"
     return response, code
 
 
@@ -265,7 +265,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = RedisWrapper({})
+    store = RedisStore(host='127.0.0.1', port=6379, db_store=0, db_cache=1)
 
 
     def get_request_id(self, headers):

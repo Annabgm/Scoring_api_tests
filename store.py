@@ -84,11 +84,5 @@ class RedisStore(object):
                 return val
             except redis.ConnectionError:
                 raise ConnectionError('Connection no more established.')
-            except:
-                return None
         else:
             raise ConnectionError('Connection no more established.')
-        # key_seed = key.split(':')[-1]
-        # random.seed(key_seed)
-        # interests = ["cars", "pets", "travel", "hi-tech", "sport", "music", "books", "tv", "cinema", "geek", "otus"]
-        # return json.dumps(random.sample(interests, 2))
