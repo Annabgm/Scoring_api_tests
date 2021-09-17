@@ -6,7 +6,6 @@ import json
 import datetime
 import logging
 import re
-import hashlib
 import uuid
 from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -42,6 +41,7 @@ GENDERS = {
 
 class ValidationError(Exception):
     pass
+
 
 class Field:
     __metaclass__ = abc.ABCMeta
@@ -238,6 +238,7 @@ def method_handler(request, ctx, store):
     function check the validity of request's attributes, if correct return result from function method_apply
     :param request: POST request
     :param ctx: logging dictionary
+    :param store: store object, wrapper for storage
     :return: response and code, is the request successful or not
     """
     request_body, request_header = request['body'], request['headers']
@@ -266,7 +267,6 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
         "method": method_handler
     }
     store = RedisStore(host='127.0.0.1', port=6379, db_store=0, db_cache=1)
-
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)

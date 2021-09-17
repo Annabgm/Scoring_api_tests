@@ -1,7 +1,4 @@
-from datetime import datetime
-import random
 import time
-import json
 import redis
 
 

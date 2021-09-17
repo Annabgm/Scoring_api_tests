@@ -3,7 +3,6 @@ from datetime import datetime
 import json
 from unittest.mock import Mock
 
-from store import RedisStore
 import api
 from test.help_testing import cases, set_valid_auth, get_store_cache_key
 
