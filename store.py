@@ -2,47 +2,44 @@ import time
 import redis
 
 
+param_store = {'host': '127.0.0.1',
+               'port': 6379,
+               'bd': 0}
+
+param_cache = {'host': '127.0.0.1',
+               'port': 6379,
+               'bd': 1}
+
+
 class RedisStore(object):
-    def __init__(self, host, port, db_store=0, db_cache=1):
+    def __init__(self, host, port, bd, type_bd):
         self.host = host
         self.port = port
         self.timeout = 5
-        self.db_store = db_store
-        self.db_cache = db_cache
+        self.bd = bd
         self.retry = 5
         self.store = None
-        self.cache = None
-        self.connect(type_st='store')
-        self.connect(type_st='cache')
+        self.connect()
+        self.type_bd = type_bd
 
-    def connect(self, type_st='store'):
-        if type_st == 'store':
-            self.store = redis.StrictRedis(
+    @classmethod
+    def from_args(cls, arg_dict, type_bd):
+        arg_dict.update({'type_bd': type_bd})
+        return cls(**arg_dict)
+
+    def connect(self):
+        self.store = redis.StrictRedis(
                 host=self.host,
                 port=self.port,
-                db=self.db_store,
-                socket_timeout=self.timeout
-            )
-        elif type_st == 'cache':
-            self.cache = redis.StrictRedis(
-                host=self.host,
-                port=self.port,
-                db=self.db_cache,
+                db=self.bd,
                 socket_timeout=self.timeout
             )
 
-    def try_command(self, type_st='store'):
-        if type_st == 'store':
-            obj = self.store
-        elif type_st == 'cache':
-            obj = self.cache
-        else:
-            raise NotImplementedError('The type of store {} not found'.format(type))
-
+    def try_command(self):
         count = 0
         while True:
             try:
-                obj.ping()
+                self.store.ping()
                 return True
                 # return f(*args, **kwargs)
             except redis.exceptions.ConnectionError:
@@ -57,29 +54,34 @@ class RedisStore(object):
                 print('Retrying in {} seconds'.format(backoff))
                 time.sleep(backoff)
 
-                self.connect(type_st=type_st)
+                self.connect()
 
-    def cache_set(self, key, value, save_time):
-        if self.try_command(type_st='cache'):
+    def set(self, key, value, save_time):
+        if self.try_command():
             try:
-                self.cache.set(key, value, ex=save_time)
-            except:
-                return None
-
-    def cache_get(self, key):
-        if self.try_command(type_st='cache'):
-            try:
-                val = int(self.cache.get(key).decode("utf-8"))
-                return val
+                self.store.set(key, value, ex=save_time)
             except:
                 return None
 
     def get(self, key):
-        if self.try_command(type_st='store'):
+        if self.try_command():
             try:
-                val = self.store.get(key).decode("utf-8")
-                return val
+                val = self.store.get(key)
+                if val is None:
+                    return
+                elif self.type_bd == 'cache':
+                    return int(val.decode("utf-8"))
+                else:
+                    return val.decode("utf-8")
             except redis.ConnectionError:
-                raise ConnectionError('Connection no more established.')
+                if self.type_bd == 'store':
+                    raise ConnectionError('Connection no more established.')
+                return
         else:
-            raise ConnectionError('Connection no more established.')
+            if self.type_bd == 'store':
+                raise ConnectionError('Connection no more established.')
+            return
+
+
+stores = {'store': RedisStore.from_args(param_store, 'store'),
+          'cache': RedisStore.from_args(param_cache, 'cache')}

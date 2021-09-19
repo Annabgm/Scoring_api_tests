@@ -11,7 +11,7 @@ from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from helpers import get_score_response, get_interest_response, check_auth
-from store import RedisStore
+from store import stores
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -211,8 +211,8 @@ def method_apply(request, store):
     method, arguments = request.method, request.arguments
     context = {}
     available_methods = {
-        "online_score": (OnlineScoreRequest, get_score_response),
-        "clients_interests": (ClientsInterestsRequest, get_interest_response)
+        "online_score": (OnlineScoreRequest, get_score_response, 'cache'),
+        "clients_interests": (ClientsInterestsRequest, get_interest_response, 'store')
     }
     try:
         local_request = available_methods[method][0](**arguments)
@@ -228,7 +228,8 @@ def method_apply(request, store):
         code, response = INVALID_REQUEST, "Invalid Request"
     else:
         code = OK
-        response, context = available_methods[method][1](request, local_request, store)
+        store_loc = store[available_methods[method][2]]
+        response, context = available_methods[method][1](request, local_request, store_loc)
     logging.info(response)
     return code, response, context
 
@@ -266,7 +267,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = RedisStore(host='127.0.0.1', port=6379, db_store=0, db_cache=1)
+    store = stores
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
