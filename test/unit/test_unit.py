@@ -4,46 +4,16 @@ import api
 from test.help_testing import cases, set_valid_auth
 
 
-class TestModuleSuite(unittest.TestCase):
-    def setUp(self):
-        self.context = {}
-        self.headers = {}
-        self.store = None
-
-    def get_response(self, request):
-        return api.method_handler({"body": request, "headers": self.headers}, self.context, self.store)
-
-    def test_empty_request(self):
-        _, code = self.get_response({})
-        self.assertEqual(api.INVALID_REQUEST, code)
-
-    @cases([
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "", "arguments": {}},
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "sdd", "arguments": {}},
-        {"account": "horns&hoofs", "login": "admin", "method": "online_score", "token": "", "arguments": {}},
-    ])
-    def test_bad_auth(self, request):
-        _, code = self.get_response(request)
-        self.assertEqual(api.FORBIDDEN, code)
-
-    @cases([
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": 11, "arguments": {}},
-        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": 11., "arguments": {}},
-        {"account": "horns&hoofs", "login": "admin", "method": "online_score", "arguments": {}}
-    ])
-    def test_invalid_token(self, request):
-        _, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code)
+class TestMethodRequestSuite(unittest.TestCase):
 
     @cases([
         {"account": 5555, "login": "h&f", "method": "online_score", "arguments": {}},
         {"account": 5555., "login": "h&f", "method": "online_score", "arguments": {}}
     ])
     def test_invalid_account(self, request):
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code)
-        self.assertTrue(len(response))
+        request_obj = api.MethodRequest(**request)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {"account": "horns&hoofs", "login": 222, "method": "online_score", "arguments": {}},
@@ -51,10 +21,9 @@ class TestModuleSuite(unittest.TestCase):
         {"account": "horns&hoofs", "method": "online_score", "arguments": {}}
     ])
     def test_invalid_login(self, request):
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code)
-        self.assertTrue(len(response))
+        request_obj = api.MethodRequest(**request)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": '3'},
@@ -65,10 +34,9 @@ class TestModuleSuite(unittest.TestCase):
         {"account": "horns&hoofs", "login": "h&f", "method": "online_score"},
     ])
     def test_invalid_arguments(self, request):
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code)
-        self.assertTrue(len(response))
+        request_obj = api.MethodRequest(**request)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {"account": "horns&hoofs", "login": "h&f", "arguments": {}},
@@ -80,32 +48,30 @@ class TestModuleSuite(unittest.TestCase):
         {"account": "horns&hoofs", "login": "h&f", "method": (2,), "arguments": {}}
     ])
     def test_invalid_method_request(self, request):
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code)
-        self.assertTrue(len(response))
+        request_obj = api.MethodRequest(**request)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
+
+
+class TestOnlineScoreSuite(unittest.TestCase):
 
     @cases([
         {"phone": "79175002040", "email": "dev@otus.ru", "gender": 1, "birthday": "01.01.2000", "first_name": 1},
         {"phone": "79175002040", "email": "dev@otus.ru", "gender": 1, "birthday": "01.01.2000", "first_name": 1.34}
         ])
     def test_invalid_first_name(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+        request_obj = api.OnlineScoreRequest(**arguments)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {"phone": "79175002040", "email": "dev@otus.ru", "gender": 1, "birthday": "01.01.2000", "last_name": 123},
         {"phone": "79175002040", "email": "dev@otus.ru", "gender": 1, "birthday": "01.01.2000", "last_name": 1.43}
     ])
     def test_invalid_last_name(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+        request_obj = api.OnlineScoreRequest(**arguments)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {"phone": "7917500d040", "email": "devotus.ru", "gender": 1, "birthday": "01.01.2000", "last_name": "a"},
@@ -115,11 +81,9 @@ class TestModuleSuite(unittest.TestCase):
         {"phone": "79175002040", "email": "dev@otus.ru333", "gender": 1, "birthday": "01.01.2000", "last_name": "a"}
     ])
     def test_invalid_email(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+        request_obj = api.OnlineScoreRequest(**arguments)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {"phone": 56, "email": "dev@otus.ru", "gender": 1, "birthday": "01.01.2000", "last_name": "a"},
@@ -130,11 +94,9 @@ class TestModuleSuite(unittest.TestCase):
         {"phone": "+79175002040", "email": "dev@otus.ru", "gender": 1, "birthday": "01.01.2000", "last_name": "a"}
     ])
     def test_invalid_phone(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+        request_obj = api.OnlineScoreRequest(**arguments)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {"phone": "79175002040", "email": "dev@otus.ru", "gender": 1, "birthday": "01.01.20", "last_name": "a"},
@@ -145,11 +107,9 @@ class TestModuleSuite(unittest.TestCase):
         {"phone": "79175002040", "email": "dev@otus.ru", "gender": 1, "birthday": 30052020, "last_name": "a"}
     ])
     def test_invalid_birthday(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+        request_obj = api.OnlineScoreRequest(**arguments)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {"phone": "79175002040", "email": "dev@otus.ru", "gender": -1, "birthday": "01.01.2020", "last_name": "a"},
@@ -157,11 +117,12 @@ class TestModuleSuite(unittest.TestCase):
         {"phone": "79175002040", "email": "dev@otus.ru", "gender": 1.0, "birthday": "01.01.2020", "last_name": "a"}
     ])
     def test_invalid_gender(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+        request_obj = api.OnlineScoreRequest(**arguments)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
+
+
+class TestClientsInterestsSuite(unittest.TestCase):
 
     @cases([
         {"date": "01-01-2020", "client_ids": [1, 2]},
@@ -171,11 +132,9 @@ class TestModuleSuite(unittest.TestCase):
         {"date": 30052020, "client_ids": [1, 2]}
     ])
     def test_invalid_date(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+        request_obj = api.ClientsInterestsRequest(**arguments)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {"date": "01.01.2020"},
@@ -187,11 +146,9 @@ class TestModuleSuite(unittest.TestCase):
         {"date": "01.01.2020", "client_ids": ["1"]}
     ])
     def test_invalid_client_ids(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+        request_obj = api.ClientsInterestsRequest(**arguments)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
     @cases([
         {},
@@ -201,11 +158,9 @@ class TestModuleSuite(unittest.TestCase):
         {"email": "dev@otus.ru", "birthday": "01.01.2000", "first_name": "s"},
     ])
     def test_invalid_score_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.INVALID_REQUEST, code, arguments)
-        self.assertTrue(len(response))
+        request_obj = api.ClientsInterestsRequest(**arguments)
+        with self.assertRaises(api.ValidationError):
+            request_obj.validate_all()
 
 
 if __name__ == "__main__":

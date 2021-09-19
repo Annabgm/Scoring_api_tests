@@ -4,7 +4,7 @@ import json
 from unittest.mock import Mock
 
 import api
-from test.help_testing import cases, set_valid_auth, get_store_cache_key
+from test.help_testing import cases, set_valid_auth
 
 
 def interest_find(key):
@@ -15,19 +15,43 @@ def interest_find(key):
     return data[key]
 
 
-attrs_mock = {'cache_set.return_value': None,
-              'cache_get.return_value': None,
-              'get.side_effect': interest_find}
+attrs_st = {'get.side_effect': interest_find}
+
+attrs_ch = {'set.return_value': None,
+            'get.return_value': None}
 
 
 class TestFunctionalSuite(unittest.TestCase):
     def setUp(self):
         self.context = {}
         self.headers = {}
-        self.store = Mock(**attrs_mock)
+        self.store = {'store': Mock(**attrs_st),
+                      'cache': Mock(**attrs_ch)}
 
     def get_response(self, request):
         return api.method_handler({"body": request, "headers": self.headers}, self.context, self.store)
+
+    def test_empty_request(self):
+        _, code = self.get_response({})
+        self.assertEqual(api.INVALID_REQUEST, code)
+
+    @cases([
+        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "", "arguments": {}},
+        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": "sdd", "arguments": {}},
+        {"account": "horns&hoofs", "login": "admin", "method": "online_score", "token": "", "arguments": {}},
+    ])
+    def test_bad_auth(self, request):
+        _, code = self.get_response(request)
+        self.assertEqual(api.FORBIDDEN, code)
+
+    @cases([
+        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": 11, "arguments": {}},
+        {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "token": 11., "arguments": {}},
+        {"account": "horns&hoofs", "login": "admin", "method": "online_score", "arguments": {}}
+    ])
+    def test_invalid_token(self, request):
+        _, code = self.get_response(request)
+        self.assertEqual(api.INVALID_REQUEST, code)
 
     @cases([
         {"phone": "79175002040", "email": "dev@otus.ru"},
