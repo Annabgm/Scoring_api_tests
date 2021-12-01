@@ -229,6 +229,7 @@ def method_apply(request, store):
     else:
         code = OK
         store_loc = store[available_methods[method][2]]
+        store_loc.connect()
         response, context = available_methods[method][1](request, local_request, store_loc)
     logging.info(response)
     return code, response, context

@@ -18,6 +18,7 @@ class TestGeneralConnectionSuite(unittest.TestCase):
 
     def setUp(self):
         self.general = RedisStore.from_args(param_store, 'general')
+        self.general.connect()
 
     @patch('redis.StrictRedis.ping')
     def test_ping_connect(self, mock_ping):
@@ -52,6 +53,7 @@ class TestStoreSuite(unittest.TestCase):
 
     def setUp(self):
         self.store = RedisStore.from_args(param_store, 'store')
+        self.store.connect()
 
     @patch('redis.StrictRedis.ping')
     @patch('redis.StrictRedis.get')
@@ -74,6 +76,7 @@ class TestCacheSuite(unittest.TestCase):
 
     def setUp(self):
         self.cache = RedisStore.from_args(param_cache, 'cache')
+        self.cache.connect()
 
     @patch('redis.StrictRedis.ping')
     @patch('redis.StrictRedis.get')

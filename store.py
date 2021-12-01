@@ -4,22 +4,24 @@ import redis
 
 param_store = {'host': '127.0.0.1',
                'port': 6379,
-               'bd': 0}
+               'bd': 0,
+               'timeout': 5}
 
 param_cache = {'host': '127.0.0.1',
                'port': 6379,
-               'bd': 1}
+               'bd': 1,
+               'timeout': 5}
 
 
 class RedisStore(object):
-    def __init__(self, host, port, bd, type_bd):
+    def __init__(self, host, port, bd, type_bd, timeout):
         self.host = host
         self.port = port
-        self.timeout = 5
+        self.timeout = timeout
         self.bd = bd
         self.retry = 5
         self.store = None
-        self.connect()
+        # self.connect()
         self.type_bd = type_bd
 
     @classmethod
