@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch
 import redis
 
-from store import RedisStore, param_store, param_cache
+from store import RedisStore, RedisCache, param_store, param_cache
 
 
 data = {'uid:0': json.dumps(3).encode("utf-8"),
@@ -17,7 +17,7 @@ def key_get(key):
 class TestGeneralConnectionSuite(unittest.TestCase):
 
     def setUp(self):
-        self.general = RedisStore.from_args(param_store, 'general')
+        self.general = RedisStore(**param_store)
         self.general.connect()
 
     @patch('redis.StrictRedis.ping')
@@ -52,7 +52,7 @@ class TestGeneralConnectionSuite(unittest.TestCase):
 class TestStoreSuite(unittest.TestCase):
 
     def setUp(self):
-        self.store = RedisStore.from_args(param_store, 'store')
+        self.store = RedisStore(**param_store)
         self.store.connect()
 
     @patch('redis.StrictRedis.ping')
@@ -75,7 +75,7 @@ class TestStoreSuite(unittest.TestCase):
 class TestCacheSuite(unittest.TestCase):
 
     def setUp(self):
-        self.cache = RedisStore.from_args(param_cache, 'cache')
+        self.cache = RedisCache(**param_cache)
         self.cache.connect()
 
     @patch('redis.StrictRedis.ping')
